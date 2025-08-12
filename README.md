@@ -12,15 +12,15 @@ The tool runs multiple tests, including dependency installation, build times, co
 
 ### Installation
 ```bash
-npm install -g dev-benchmark-suite
+npm install -g benchmark-me
 ```
-This makes the `dev-benchmark` command available in your terminal.
+This makes the `benchmark-me` command available in your terminal.
 
 ### How to Use
 1. Navigate to the root of a Next.js project you want to test.
 2. Run:
 ```bash
-dev-benchmark
+benchmark-me
 ```
 Follow the prompts to select tests and the number of runs (default is 3). The script saves a `benchmark-results-....json` file for each run in your current directory.
 

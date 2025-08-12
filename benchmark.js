@@ -10,7 +10,7 @@ import os from 'os';
 import inquirer from 'inquirer';
 import sharp from 'sharp';
 
-const SCRIPT_VERSION = '1.1.0';
+const SCRIPT_VERSION = '1.1.1';
 
 // --- Helper Functions ---
 
