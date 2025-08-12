@@ -10,7 +10,7 @@ import os from 'os';
 import inquirer from 'inquirer';
 import sharp from 'sharp';
 
-const SCRIPT_VERSION = '1.1.1';
+const SCRIPT_VERSION = '1.1.2'; // Updated version
 
 // --- Helper Functions ---
 
@@ -107,9 +107,9 @@ const measurePerformance = (command, args, options = {}, killSignal = null) => {
             const endCpu = getCpuUsage();
 
             if (code !== 0 && code !== null) { // null when process is killed intentionally
-                 console.error(`\n❌ Test finished with error (code ${code}).`);
+                console.error(`\n❌ Test finished with error (code ${code}).`);
             } else {
-                 console.log(`\n✅ Test finished.`);
+                console.log(`\n✅ Test finished.`);
             }
 
             resolve({
@@ -175,7 +175,7 @@ const runCleanInstall = async () => {
 
     // --- Installation Phase ---
     const installResult = await measurePerformance('npm', ['install']);
-    
+
     const totalEndTime = performance.now();
     const endMem = getMemoryUsage();
     const endCpu = getCpuUsage();
@@ -211,20 +211,26 @@ const runFileIoTest = async () => {
     const totalStartTime = performance.now();
     const startMem = getMemoryUsage();
     const startCpu = getCpuUsage();
-    
+
     const tempDir = 'benchmark_temp_files';
     const fileCount = 10000;
     const fileContent = 'a'.repeat(10000);
-    
+
     // --- File Creation ---
     console.log(`Creating ${fileCount} files in ./${tempDir}...`);
     const createStart = performance.now();
     await fs.mkdir(tempDir, { recursive: true });
-    const fileWritePromises = [];
-    for (let i = 0; i < fileCount; i++) {
-        fileWritePromises.push(fs.writeFile(path.join(tempDir, `file-${i}.txt`), fileContent));
+
+    // Batch file writing to avoid EMFILE error
+    const chunkSize = 500;
+    for (let i = 0; i < fileCount; i += chunkSize) {
+        const chunkPromises = [];
+        for (let j = i; j < i + chunkSize && j < fileCount; j++) {
+            chunkPromises.push(fs.writeFile(path.join(tempDir, `file-${j}.txt`), fileContent));
+        }
+        await Promise.all(chunkPromises);
     }
-    await Promise.all(fileWritePromises);
+
     const createEnd = performance.now();
     const createDuration = parseFloat(((createEnd - createStart) / 1000).toFixed(2));
     console.log(`✅ File creation took ${createDuration}s.`);
@@ -268,23 +274,23 @@ const runHeavyScript = async () => {
     console.log('Starting heavy computation (prime number calculation)...');
 
     function isPrime(num) {
-      if (num <= 1) return false;
-      if (num <= 3) return true;
-      if (num % 2 === 0 || num % 3 === 0) return false;
-      for (let i = 5; i * i <= num; i = i + 6) {
-        if (num % i === 0 || num % (i + 2) === 0) return false;
-      }
-      return true;
+        if (num <= 1) return false;
+        if (num <= 3) return true;
+        if (num % 2 === 0 || num % 3 === 0) return false;
+        for (let i = 5; i * i <= num; i = i + 6) {
+            if (num % i === 0 || num % (i + 2) === 0) return false;
+        }
+        return true;
     }
 
     function findPrimes(max) {
-      const primes = [];
-      for (let i = 2; i <= max; i++) {
-        if (isPrime(i)) {
-          primes.push(i);
+        const primes = [];
+        for (let i = 2; i <= max; i++) {
+            if (isPrime(i)) {
+                primes.push(i);
+            }
         }
-      }
-      return primes;
+        return primes;
     }
 
     const maxNumber = 1000000;
@@ -315,7 +321,7 @@ const runImageProcessingTest = async () => {
     const totalStartTime = performance.now();
     const startMem = getMemoryUsage();
     const startCpu = getCpuUsage();
-    
+
     const tempDir = 'benchmark_images';
     const imageCount = 200;
     const imageSize = { width: 2048, height: 2048 };
@@ -399,7 +405,7 @@ const runLinterTest = () => measurePerformance('npx', ['next', 'lint']);
 
 const main = async () => {
     console.log('=======================================');
-    console.log('  Frontend Developer Benchmark Me');
+    console.log('  Frontend Developer Benchmark Suite');
     console.log(`              v${SCRIPT_VERSION}`);
     console.log('=======================================');
     console.log('This script will measure the performance of common development tasks.');
@@ -441,7 +447,7 @@ const main = async () => {
         console.log(`\n\n=======================================`);
         console.log(`          Starting Run ${i} of ${runCount}`);
         console.log(`=======================================\n`);
-        
+
         const runStartTimeUTC = new Date().toISOString();
 
         const results = {
@@ -478,10 +484,10 @@ const main = async () => {
             }
             results.benchmarks.nextBuild = await runNextBuild();
         }
-         if (testsToRun.includes('typeCheck')) {
+        if (testsToRun.includes('typeCheck')) {
             results.benchmarks.typeCheck = await runTypeScriptCheck();
         }
-         if (testsToRun.includes('linter')) {
+        if (testsToRun.includes('linter')) {
             results.benchmarks.linter = await runLinterTest();
         }
         if (testsToRun.includes('imageProcessing')) {
@@ -511,14 +517,14 @@ const main = async () => {
             const items = testResult.amountOfProcessedItems ? ` (${testResult.amountOfProcessedItems} items)` : '';
             if (testResult.subTasks) {
                 console.log(`  - ${testResult.command}${items} (Total): ${testResult.duration_s}s`);
-                for(const subTaskName in testResult.subTasks) {
+                for (const subTaskName in testResult.subTasks) {
                     const subTaskResult = testResult.subTasks[subTaskName];
                     const subTaskLabel = subTaskName.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
                     console.log(`    - ${subTaskLabel}: ${subTaskResult.duration_s}s`);
                 }
             }
             else {
-                 console.log(`  - ${testResult.command}${items}: ${testResult.duration_s}s`);
+                console.log(`  - ${testResult.command}${items}: ${testResult.duration_s}s`);
             }
         }
     }
