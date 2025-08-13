@@ -2,15 +2,71 @@
 
 // benchmark.js
 
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { performance } from 'perf_hooks';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import inquirer from 'inquirer';
-import sharp from 'sharp';
+import readline from 'readline';
 
-const SCRIPT_VERSION = '1.1.3'; // Updated version
+const SCRIPT_VERSION = '2.1.0'; // Updated version
+
+// --- Dependency Management ---
+
+/**
+ * Checks for required packages and prompts to install them if missing.
+ */
+const checkAndInstallDependencies = async () => {
+    const requiredPackages = ['inquirer', 'sharp'];
+    const missingPackages = [];
+
+    for (const pkg of requiredPackages) {
+        try {
+            // A trick to check if a module is available without importing it everywhere
+            await import(pkg);
+        } catch (err) {
+            if (err.code === 'ERR_MODULE_NOT_FOUND') {
+                missingPackages.push(pkg);
+            }
+        }
+    }
+
+    if (missingPackages.length > 0) {
+        console.log('This script requires some additional packages to run.');
+        console.log(`Missing: ${missingPackages.join(', ')}`);
+
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout
+        });
+
+        const answer = await new Promise(resolve => {
+            rl.question('Would you like to install them now? (y/n) ', resolve);
+        });
+
+        rl.close();
+
+        if (answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes') {
+            console.log(`\nInstalling ${missingPackages.join(' ')}...`);
+            try {
+                // Using execSync for simplicity as this is a one-off setup command.
+                execSync(`npm install ${missingPackages.join(' ')}`, { stdio: 'inherit' });
+                console.log('\n✅ Dependencies installed successfully!');
+                console.log('Please run the benchmark script again.');
+                process.exit(0);
+            } catch (err) {
+                console.error('\n❌ Failed to install dependencies.');
+                console.error('Please try installing them manually by running:');
+                console.error(`npm install ${missingPackages.join(' ')}`);
+                process.exit(1);
+            }
+        } else {
+            console.log('Installation cancelled. Exiting.');
+            process.exit(1);
+        }
+    }
+};
+
 
 // --- Helper Functions ---
 
@@ -107,9 +163,9 @@ const measurePerformance = (command, args, options = {}, killSignal = null) => {
             const endCpu = getCpuUsage();
 
             if (code !== 0 && code !== null) { // null when process is killed intentionally
-                console.error(`\n❌ Test finished with error (code ${code}).`);
+                 console.error(`\n❌ Test finished with error (code ${code}).`);
             } else {
-                console.log(`\n✅ Test finished.`);
+                 console.log(`\n✅ Test finished.`);
             }
 
             resolve({
@@ -135,7 +191,7 @@ const measurePerformance = (command, args, options = {}, killSignal = null) => {
 
 // --- Benchmark Tasks ---
 
-const runCleanInstall = async () => {
+const runCleanInstall = async (useLegacyPeerDeps) => {
     console.log('\n🚀 Starting test: Clean Install (deleting node_modules and running npm install)...');
     const totalStartTime = performance.now();
     const startMem = getMemoryUsage();
@@ -174,8 +230,12 @@ const runCleanInstall = async () => {
     console.log(`✅ npm cache clean took ${npmCacheCleanDuration}s.`);
 
     // --- Installation Phase ---
-    const installResult = await measurePerformance('npm', ['install']);
-
+    const installArgs = ['install'];
+    if (useLegacyPeerDeps) {
+        installArgs.push('--legacy-peer-deps');
+    }
+    const installResult = await measurePerformance('npm', installArgs);
+    
     const totalEndTime = performance.now();
     const endMem = getMemoryUsage();
     const endCpu = getCpuUsage();
@@ -206,16 +266,16 @@ const runCleanInstall = async () => {
     };
 };
 
-const runFileIoTest = async () => {
+const runFileIoTest = async (runTempDir) => {
     console.log('\n🚀 Starting test: File I/O (Create & Delete 10000 files)...');
     const totalStartTime = performance.now();
     const startMem = getMemoryUsage();
     const startCpu = getCpuUsage();
-
-    const tempDir = 'benchmark_temp_files';
+    
+    const tempDir = path.join(runTempDir, 'temp_files');
     const fileCount = 10000;
     const fileContent = 'a'.repeat(10000);
-
+    
     // --- File Creation ---
     console.log(`Creating ${fileCount} files in ./${tempDir}...`);
     const createStart = performance.now();
@@ -274,23 +334,23 @@ const runHeavyScript = async () => {
     console.log('Starting heavy computation (prime number calculation)...');
 
     function isPrime(num) {
-        if (num <= 1) return false;
-        if (num <= 3) return true;
-        if (num % 2 === 0 || num % 3 === 0) return false;
-        for (let i = 5; i * i <= num; i = i + 6) {
-            if (num % i === 0 || num % (i + 2) === 0) return false;
-        }
-        return true;
+      if (num <= 1) return false;
+      if (num <= 3) return true;
+      if (num % 2 === 0 || num % 3 === 0) return false;
+      for (let i = 5; i * i <= num; i = i + 6) {
+        if (num % i === 0 || num % (i + 2) === 0) return false;
+      }
+      return true;
     }
 
     function findPrimes(max) {
-        const primes = [];
-        for (let i = 2; i <= max; i++) {
-            if (isPrime(i)) {
-                primes.push(i);
-            }
+      const primes = [];
+      for (let i = 2; i <= max; i++) {
+        if (isPrime(i)) {
+          primes.push(i);
         }
-        return primes;
+      }
+      return primes;
     }
 
     const maxNumber = 1000000;
@@ -316,13 +376,13 @@ const runHeavyScript = async () => {
     };
 };
 
-const runImageProcessingTest = async () => {
+const runImageProcessingTest = async (sharp, runTempDir) => {
     console.log('\n🚀 Starting test: Image Processing (sharp)...');
     const totalStartTime = performance.now();
     const startMem = getMemoryUsage();
     const startCpu = getCpuUsage();
-
-    const tempDir = 'benchmark_images';
+    
+    const tempDir = path.join(runTempDir, 'temp_images');
     const imageCount = 200;
     const imageSize = { width: 2048, height: 2048 };
     const resizeWidth = 800;
@@ -363,8 +423,7 @@ const runImageProcessingTest = async () => {
     const processDuration = parseFloat(((processEnd - processStart) / 1000).toFixed(2));
     console.log(`✅ Image resizing took ${processDuration}s.`);
 
-    // --- Cleanup ---
-    await fs.rm(tempDir, { recursive: true, force: true });
+    // --- Cleanup is handled by the main loop ---
 
     const totalEndTime = performance.now();
     const endMem = getMemoryUsage();
@@ -404,6 +463,10 @@ const runLinterTest = () => measurePerformance('npx', ['next', 'lint']);
 // --- Main Execution ---
 
 const main = async () => {
+    // Dynamically import dependencies after they have been verified
+    const { default: inquirer } = await import('inquirer');
+    const { default: sharp } = await import('sharp');
+
     console.log('=======================================');
     console.log('  Frontend Developer Benchmark Suite');
     console.log(`              v${SCRIPT_VERSION}`);
@@ -428,6 +491,15 @@ const main = async () => {
         }
     ]);
 
+    const { useLegacyPeerDeps } = await inquirer.prompt([
+        {
+            type: 'confirm',
+            name: 'useLegacyPeerDeps',
+            message: 'Use --legacy-peer-deps for npm install?',
+            default: false
+        }
+    ]);
+
     const { runCount } = await inquirer.prompt([
         {
             type: 'number',
@@ -443,11 +515,20 @@ const main = async () => {
         }
     ]);
 
+    const mainDir = 'benchmark-me';
+    const resultsDir = path.join(mainDir, 'results');
+    await fs.mkdir(resultsDir, { recursive: true });
+
     for (let i = 1; i <= runCount; i++) {
+        const runTimestamp = Date.now();
+        const runTempDir = path.join(mainDir, `temp-${runTimestamp}`);
+        await fs.mkdir(runTempDir, { recursive: true });
+
         console.log(`\n\n=======================================`);
         console.log(`          Starting Run ${i} of ${runCount}`);
+        console.log(`   (Temp files in ./${runTempDir})`);
         console.log(`=======================================\n`);
-
+        
         const runStartTimeUTC = new Date().toISOString();
 
         const results = {
@@ -468,7 +549,7 @@ const main = async () => {
         };
 
         if (testsToRun.includes('cleanInstall')) {
-            results.benchmarks.cleanInstall = await runCleanInstall();
+            results.benchmarks.cleanInstall = await runCleanInstall(useLegacyPeerDeps);
         }
         if (testsToRun.includes('nextBuild')) {
             if (!testsToRun.includes('cleanInstall')) {
@@ -479,22 +560,26 @@ const main = async () => {
                     default: true
                 }]);
                 if (confirmInstall) {
-                    await measurePerformance('npm', ['install']);
+                    const installArgs = ['install'];
+                    if (useLegacyPeerDeps) {
+                        installArgs.push('--legacy-peer-deps');
+                    }
+                    await measurePerformance('npm', installArgs);
                 }
             }
             results.benchmarks.nextBuild = await runNextBuild();
         }
-        if (testsToRun.includes('typeCheck')) {
+         if (testsToRun.includes('typeCheck')) {
             results.benchmarks.typeCheck = await runTypeScriptCheck();
         }
-        if (testsToRun.includes('linter')) {
+         if (testsToRun.includes('linter')) {
             results.benchmarks.linter = await runLinterTest();
         }
         if (testsToRun.includes('imageProcessing')) {
-            results.benchmarks.imageProcessing = await runImageProcessingTest();
+            results.benchmarks.imageProcessing = await runImageProcessingTest(sharp, runTempDir);
         }
         if (testsToRun.includes('fileIo')) {
-            results.benchmarks.fileIo = await runFileIoTest();
+            results.benchmarks.fileIo = await runFileIoTest(runTempDir);
         }
         if (testsToRun.includes('heavyScript')) {
             results.benchmarks.heavyScript = await runHeavyScript();
@@ -503,13 +588,17 @@ const main = async () => {
         results.runEndTimeUTC = new Date().toISOString();
 
         // Save results for the current run
-        const resultsFilename = `benchmark-results-${os.hostname()}-${Date.now()}.json`;
-        await fs.writeFile(resultsFilename, JSON.stringify(results, null, 2));
+        const resultsFilename = `benchmark-results-${os.hostname()}-${runTimestamp}.json`;
+        const resultsPath = path.join(resultsDir, resultsFilename);
+        await fs.writeFile(resultsPath, JSON.stringify(results, null, 2));
+
+        // Cleanup temp directory for the run
+        await fs.rm(runTempDir, { recursive: true, force: true });
 
         console.log('\n---------------------------------------');
         console.log(`          Run ${i} Complete`);
         console.log('---------------------------------------');
-        console.log(`\n📊 Results for this run saved to ${resultsFilename}`);
+        console.log(`\n📊 Results for this run saved to ${resultsPath}`);
         console.log('\nSummary for this run:');
 
         for (const testName in results.benchmarks) {
@@ -517,14 +606,14 @@ const main = async () => {
             const items = testResult.amountOfProcessedItems ? ` (${testResult.amountOfProcessedItems} items)` : '';
             if (testResult.subTasks) {
                 console.log(`  - ${testResult.command}${items} (Total): ${testResult.duration_s}s`);
-                for (const subTaskName in testResult.subTasks) {
+                for(const subTaskName in testResult.subTasks) {
                     const subTaskResult = testResult.subTasks[subTaskName];
                     const subTaskLabel = subTaskName.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
                     console.log(`    - ${subTaskLabel}: ${subTaskResult.duration_s}s`);
                 }
             }
             else {
-                console.log(`  - ${testResult.command}${items}: ${testResult.duration_s}s`);
+                 console.log(`  - ${testResult.command}${items}: ${testResult.duration_s}s`);
             }
         }
     }
@@ -534,4 +623,8 @@ const main = async () => {
     console.log('=======================================');
 };
 
-main().catch(console.error);
+// Script entry point
+(async () => {
+    await checkAndInstallDependencies();
+    await main();
+})().catch(console.error);
